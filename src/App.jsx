@@ -10,6 +10,7 @@ import LoadingOverlay from './components/LoadingOverlay/LoadingOverlay';
 import iconMegaphone from './assets/img/icon-megaphone.svg';
 import iconMessageCheck from './assets/img/icon-message-check.svg';
 
+
 // Déclaration du composant principal App
 function App() {
 // Déclaration des états locaux :
@@ -97,6 +98,17 @@ function App() {
         }
     }
 
+    async function incrementMsgSentCounter(docId) {
+        try {
+            const testimonyRef = doc(db, 'embeds', docId);
+            await updateDoc(testimonyRef, {
+                counterMsgSent: increment(1), // Incrémente atomiquement la valeur de 1
+            });
+        } catch (error) {
+            console.error('Erreur lors de l\'incrémentation du compteur de messages envoyés :', error);
+        }
+    }
+
     
 
     const handleStartQuestionnaire = () => {
@@ -164,6 +176,36 @@ function App() {
         }
     };
 
+    const sendToN8n = async (data) => {
+        try {
+            const response = await fetch('http://n8n.cesargreppin2.synology.me:5678/webhook-test/f5ed5ded-a8ba-46df-8566-083fbe97d32b', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    name: data.name,
+                    email: data.email,
+                    message: data.message,
+                    testimonyId: docId,
+                    testimonyTitle: testimony?.content?.title,
+                    testimonySubject: testimony?.content?.subject,
+                    timestamp: new Date().toISOString(),
+                    event: 'testimony_submitted'
+                })
+            });
+            
+            if (response.ok) {
+                console.log('✅ Données envoyées à n8n avec succès');
+            } else {
+                console.warn('⚠️ n8n réponse:', response.status);
+            }
+        } catch (error) {
+            console.error('❌ Erreur lors de l\'envoi à n8n:', error);
+            // Ne pas bloquer la soumission si n8n échoue
+        }
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         
@@ -174,6 +216,12 @@ function App() {
             try {
                 // Formulaire valide, sauvegarder dans Firebase
                 await saveMessageToFirebase(formData);
+                
+                // Incrémenter atomiquement le compteur de messages envoyés dans Firebase
+                await incrementMsgSentCounter(docId);
+                
+                // Envoyer les données à n8n
+                await sendToN8n(formData);
                 
                 // Passer au mode remerciement
                 setAppMode('thank');
@@ -186,7 +234,7 @@ function App() {
     };
 
     return (
-        <div className="App overflow-hidden relative p-2.5 sm:p-5 bg-gray-100 font-inter">
+        <div className="App overflow-hidden relative p-2.5 sm:p-5 font-inter">
             {appMode === null && (
                 // Affichage pendant la vérification de l'expiration
                 <LoadingOverlay />
@@ -198,17 +246,19 @@ function App() {
                         icon={iconMegaphone} 
                         label={testimony?.content.title} 
                     />
+                    
                     <div className='text-center mb-5 sm:mb-10'>
                         <span className='text-base sm:text-lg leading-6 sm:leading-7'><u>{testimony?.content.subject}:</u> {testimony?.content.question}</span>
                     </div>
                     <div>
                         <button 
                             onClick={handleStartQuestionnaire}
-                            className='w-full text-white text-center font-inter font-bold h-12 bg-blick rounded-full border-none'
+                            className='w-full text-white text-center font-inter font-bold h-12 bg-blick rounded-full border-none cursor-pointer'
                         >
                             Je participe
                         </button>
                     </div>
+                  
                 </>
             )}
 
@@ -232,11 +282,11 @@ function App() {
                                 name="name"
                                 value={formData.name}
                                 onChange={handleInputChange}
-                                className={`w-full h-12 px-6 py-2 bg-white border rounded-full focus:outline-none focus:ring-0 ${
-                                    formErrors.name ? 'border-red-500 focus:border-red-500' : 'border-gray-300 focus:border-gray-400'
+                                className={`w-full h-12 px-6 py-2 border rounded-full focus:outline-none focus:ring-0 ${
+                                    formErrors.name ? 'error' : ''
                                 }`}
                             />
-                            {formErrors.name && <p className="text-red-500 text-sm mt-1">{formErrors.name}</p>}
+                            {formErrors.name && <p className="error-message">{formErrors.name}</p>}
                         </div>
 
                         <div>
@@ -249,11 +299,11 @@ function App() {
                                 name="email"
                                 value={formData.email}
                                 onChange={handleInputChange}
-                                className={`w-full h-12 px-6 py-2 bg-white border rounded-full focus:outline-none focus:ring-0 ${
-                                    formErrors.email ? 'border-red-500 focus:border-red-500' : 'border-gray-300 focus:border-gray-400'
+                                className={`w-full h-12 px-6 py-2 border rounded-full focus:outline-none focus:ring-0 ${
+                                    formErrors.email ? 'error' : ''
                                 }`}
                             />
-                            {formErrors.email && <p className="text-red-500 text-sm mt-1">{formErrors.email}</p>}
+                            {formErrors.email && <p className="error-message">{formErrors.email}</p>}
                         </div>
 
                         <div>
@@ -266,11 +316,11 @@ function App() {
                                 rows="5"
                                 value={formData.message}
                                 onChange={handleInputChange}
-                                className={`w-full px-6 py-3 bg-white border rounded-2xl focus:outline-none focus:ring-0 resize-none ${
-                                    formErrors.message ? 'border-red-500 focus:border-red-500' : 'border-gray-300 focus:border-gray-400'
+                                className={`w-full px-6 py-3 border rounded-2xl focus:outline-none focus:ring-0 resize-none ${
+                                    formErrors.message ? 'error' : ''
                                 }`}
                             ></textarea>
-                            {formErrors.message && <p className="text-red-500 text-sm mt-1">{formErrors.message}</p>}
+                            {formErrors.message && <p className="error-message">{formErrors.message}</p>}
                         </div>
 
                         <div className='flex items-start space-x-3'>
@@ -286,14 +336,14 @@ function App() {
                                 <label htmlFor="privacy" className='text-base'>
                                     J'accepte que mes informations soient traitées par Blick conformément à la <a target="_blank" rel="noopener noreferrer" href="https://www.blick.ch/fr/services/dispositions-de-protection-des-donnees-id18211424.html" className='text-default'><u>politique de confidentialité</u></a>.
                                 </label>
-                                {formErrors.privacy && <p className="text-red-500 text-sm mt-1">{formErrors.privacy}</p>}
+                                {formErrors.privacy && <p className="error-message">{formErrors.privacy}</p>}
                             </div>
                         </div>
 
                         <div>
                             <button 
                                 type="submit"
-                                className='w-full text-white text-center font-inter font-bold h-12 bg-blick rounded-full border-none'
+                                className='w-full text-white text-center font-inter font-bold h-12 bg-blick rounded-full border-none cursor-pointer'
                             >
                                 Envoyer
                             </button>
