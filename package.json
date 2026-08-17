@@ -1,5 +1,5 @@
 {
-  "name": "bl-tool-calendar-r",
+  "name": "bl-tool-testimony-r",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -12,7 +12,9 @@
   "dependencies": {
     "firebase": "^11.6.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "@rms/ui": "*",
+    "@rms/services": "*"
   },
   "devDependencies": {
     "@eslint/js": "^9.22.0",

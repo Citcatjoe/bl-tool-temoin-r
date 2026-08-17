@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'; 
 import './App.scss';
 import AppTitle from './components/AppTitle/AppTitle';
-import { fetchTestimonyData } from './services/api';
-import { dataLayerPushView } from './services/analytics'; // Import des fonctions analytiques
-import { db } from './services/firebase';
+import { fetchWidgetData } from '@rms/services';
+import { dataLayerPushView } from '@rms/services'; // Import des fonctions analytiques
+import { db } from '@rms/services';
 import { doc, updateDoc, increment, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import LoadingOverlay from './components/LoadingOverlay/LoadingOverlay';
 
@@ -40,7 +40,7 @@ function App() {
 
         if (!testimonyDoc) {
             console.log('Aucun testimony trouvé.');
-            setAppMode('cta'); // Mode par défaut si pas de document
+            // On laisse appMode à null pour rester bloqué sur le loader
             return;
         }
 
@@ -48,13 +48,20 @@ function App() {
 
          async function loadTestimony() {
             try {
-                const data = await fetchTestimonyData(testimonyDoc); // Appel à l'API pour récupérer les données.
+                const data = await fetchWidgetData(testimonyDoc); // Appel à l'API pour récupérer les données.
+                
+                if (!data) {
+                    throw new Error("Aucun document trouvé");
+                }
+                
                 setTestimony(data); // Mise à jour de l'état `folder` avec les données récupérées.
                 
+                const timeExpires = data?.data?.timeExpires || data?.data?.content?.timeExpires || data?.content?.timeExpires;
+                
                 // Vérifier si le formulaire a expiré
-                if (data?.content?.timeExpires) {
+                if (timeExpires) {
                     const now = new Date();
-                    const expirationDate = data.content.timeExpires.toDate(); // Convertir le timestamp Firestore en Date
+                    const expirationDate = timeExpires.toDate ? timeExpires.toDate() : new Date(timeExpires); // Convertir le timestamp Firestore en Date
                     
                  
                     
@@ -74,11 +81,10 @@ function App() {
                 
                 // Incrémenter le compteur de vues
                 await incrementViewCounter(testimonyDoc);
-                dataLayerPushView(testimonyDoc);
+                dataLayerPushView(testimonyDoc, 'TESTIMONY');
             } catch (error) {
                 console.error('Erreur lors du chargement du testimony:', error);
-                // En cas d'erreur, rester en mode CTA par défaut
-                setAppMode('cta');
+                // En cas d'erreur, on laisse appMode à null pour rester bloqué sur le loader
             }
         }
 
@@ -89,9 +95,9 @@ function App() {
 
     async function incrementViewCounter(docId) {
         try {
-            const testimonyRef = doc(db, 'embeds', docId);
+            const testimonyRef = doc(db, 'widgets', docId);
             await updateDoc(testimonyRef, {
-                counterViews: increment(1), // Incrémente la valeur de 1
+                'stats.views': increment(1), // Incrémente la valeur de 1
             });
         } catch (error) {
             console.error('Erreur lors de l\'incrémentation du compteur de vues :', error);
@@ -100,9 +106,9 @@ function App() {
 
     async function incrementMsgSentCounter(docId) {
         try {
-            const testimonyRef = doc(db, 'embeds', docId);
+            const testimonyRef = doc(db, 'widgets', docId);
             await updateDoc(testimonyRef, {
-                counterMsgSent: increment(1), // Incrémente atomiquement la valeur de 1
+                'stats.msgSent': increment(1), // Incrémente atomiquement la valeur de 1
             });
         } catch (error) {
             console.error('Erreur lors de l\'incrémentation du compteur de messages envoyés :', error);
@@ -158,7 +164,7 @@ function App() {
     const saveMessageToFirebase = async (messageData) => {
         try {
             // Créer une référence à la sous-collection messages du document testimony
-            const messagesRef = collection(db, 'embeds', docId, 'messages');
+            const messagesRef = collection(db, 'widgets', docId, 'messages');
             
             // Ajouter le nouveau message avec un timestamp automatique
             const docRef = await addDoc(messagesRef, {
@@ -176,36 +182,6 @@ function App() {
         }
     };
 
-    const sendToN8n = async (data) => {
-        try {
-            const response = await fetch('http://n8n.cesargreppin2.synology.me:5678/webhook-test/f5ed5ded-a8ba-46df-8566-083fbe97d32b', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    name: data.name,
-                    email: data.email,
-                    message: data.message,
-                    testimonyId: docId,
-                    testimonyTitle: testimony?.content?.title,
-                    testimonySubject: testimony?.content?.subject,
-                    timestamp: new Date().toISOString(),
-                    event: 'testimony_submitted'
-                })
-            });
-            
-            if (response.ok) {
-                console.log('✅ Données envoyées à n8n avec succès');
-            } else {
-                console.warn('⚠️ n8n réponse:', response.status);
-            }
-        } catch (error) {
-            console.error('❌ Erreur lors de l\'envoi à n8n:', error);
-            // Ne pas bloquer la soumission si n8n échoue
-        }
-    };
-
     const handleSubmit = async (e) => {
         e.preventDefault();
         
@@ -219,9 +195,6 @@ function App() {
                 
                 // Incrémenter atomiquement le compteur de messages envoyés dans Firebase
                 await incrementMsgSentCounter(docId);
-                
-                // Envoyer les données à n8n
-                await sendToN8n(formData);
                 
                 // Passer au mode remerciement
                 setAppMode('thank');
@@ -244,11 +217,11 @@ function App() {
                 <>
                     <AppTitle 
                         icon={iconMegaphone} 
-                        label={testimony?.content.title} 
+                        label={testimony?.data?.title || testimony?.data?.content?.title || testimony?.content?.title} 
                     />
                     
                     <div className='text-center mb-5 sm:mb-10'>
-                        <span className='text-base sm:text-lg leading-6 sm:leading-7'><u>{testimony?.content.subject}:</u> {testimony?.content.question}</span>
+                        <span className='text-base sm:text-lg leading-6 sm:leading-7'><u>{testimony?.data?.subject || testimony?.data?.content?.subject || testimony?.content?.subject}:</u> {testimony?.data?.question || testimony?.data?.content?.question || testimony?.content?.question}</span>
                     </div>
                     <div>
                         <button 
@@ -266,10 +239,10 @@ function App() {
                 <>
                     <AppTitle 
                         icon={iconMegaphone} 
-                        label={testimony?.content.title} 
+                        label={testimony?.data?.title || testimony?.data?.content?.title || testimony?.content?.title} 
                     />
                     <div className='text-center mb-8 sm:mb-10'>
-                        <span className='text-base sm:text-lg leading-6 sm:leading-7'><u>{testimony?.content.subject}:</u> {testimony?.content.question}</span>
+                        <span className='text-base sm:text-lg leading-6 sm:leading-7'><u>{testimony?.data?.subject || testimony?.data?.content?.subject || testimony?.content?.subject}:</u> {testimony?.data?.question || testimony?.data?.content?.question || testimony?.content?.question}</span>
                     </div>
                     <form className='space-y-5 -mt-3' onSubmit={handleSubmit}>
                         <div>
@@ -371,10 +344,10 @@ function App() {
                     {/* Affichage du mode expiré */}
                     <AppTitle 
                         icon={iconMegaphone} 
-                        label={testimony?.content.title} 
+                        label={testimony?.data?.title || testimony?.data?.content?.title || testimony?.content?.title} 
                     />
                      <div className='text-center mb-8 sm:mb-10'>
-                        <span className='text-base sm:text-lg leading-6 sm:leading-7'><u>{testimony?.content.subject}:</u> {testimony?.content.question}</span>
+                        <span className='text-base sm:text-lg leading-6 sm:leading-7'><u>{testimony?.data?.subject || testimony?.data?.content?.subject || testimony?.content?.subject}:</u> {testimony?.data?.question || testimony?.data?.content?.question || testimony?.content?.question}</span>
                     </div>
                     <div>
                         <button 
@@ -386,6 +359,7 @@ function App() {
                     </div>
                 </>
             )}
+
         </div>
     );
 }
